@@ -2,7 +2,7 @@ import time, math
 import browserbotics as bb
 
 # ════════════════════════════════════════════════════════════
-#  HOSPITAL SURGICAL ROBOTICS — v8.0
+#  HOSPITAL SURGICAL ROBOTICS — v8.1 (PICK FIX)
 #
 #  Floor plan (shared walls, no gaps, no roof, no floating items):
 #
@@ -45,20 +45,30 @@ FLR_STAFF = '#DDD8CC'
 FLR_STORE = '#D4D4D0'
 FLR_NURS  = '#C8D4D8'
 
-WH = 2.60   # wall height — walls exist but NO ceiling added
-WT = 0.12   # wall half-thickness
-DW = 0.55   # door half-width
+WH = 2.60
+WT = 0.12
+DW = 0.55
 
+# ── PEDESTAL_TOP_Z: height of the top surface of the robot pedestal ──
+# This must match the actual top Z of the pedestal built in build_or_contents()
+# The pedestal top ring sits at uz + 3*0.028 + 0.022*2 ≈ 0.442
 PEDESTAL_TOP_Z = 0.442
+
 ZERO_QUAT      = [0.0, 0.0, 0.0, 1.0]
 home_arm_jpos  = [0.0, -0.3, 0.0, -1.8, 0.0, 1.6, 0.8]
 JOINT_NAMES = ['J1 Base','J2 Shoulder','J3 Elbow','J4 Elbow2','J5 Wrist1','J6 Wrist2','J7 Wrist3']
 JOINT_LO    = [-2.8973,-1.7628,-2.8973,-3.0718,-2.8973,-0.0175,-2.8973]
 JOINT_HI    = [ 2.8973, 1.7628, 2.8973,-0.0698, 2.8973, 3.7525, 2.8973]
 
-robot=None; ee_link=10; DOWN_QUAT=None
-OBJ_IDS={}; OBJ_PICK={}; ORIGIN={}; BED_DROPS=[]
-cur_j=list(home_arm_jpos); held_obj=''; drop_idx=0
+robot   = None
+ee_link = 10
+DOWN_QUAT = None
+
+BED_DROPS = []
+
+cur_j    = list(home_arm_jpos)
+held_obj = ''
+drop_idx = 0
 
 # Room boundary coordinates
 BLDG_X1,BLDG_X2 = -9.0, 14.0
@@ -89,7 +99,6 @@ def B(hx,hy,hz,px,py,pz,col):
     bb.createBody('box',halfExtent=[hx,hy,hz],position=[px,py,pz],color=col,mass=0)
 
 def wall(px,py,hx,hy,col=W_EXT):
-    """Full-height solid wall segment."""
     B(hx,hy,WH/2, px,py,WH/2, col)
 
 def floor_slab(px,py,hx,hy,col,gc=None):
@@ -101,18 +110,13 @@ def floor_slab(px,py,hx,hy,col,gc=None):
         for j in range(-ny,ny+1): B(hx,0.004,0.002, px,py+j*0.80,0.014,gc)
 
 def wall_door_x(py,x1,x2,dcx,col):
-    """Horizontal wall at Y=py with door gap at dcx.
-       NO transom — open top, nothing floating above door."""
     gl=dcx-DW; gr=dcx+DW
     if gl>x1: wall(rcx(x1,gl),  py, rhw(x1,gl),  WT, col)
     if gr<x2: wall(rcx(gr,x2),  py, rhw(gr,x2),  WT, col)
-    # Door frame posts only (ground to ~2.1 m, no top bar)
     for s in [-1,1]:
         B(0.04,WT+0.02,1.05, dcx+s*DW,py,1.05,'#B0BCC4')
 
 def wall_door_y(px,y1,y2,dcy,col):
-    """Vertical wall at X=px with door gap at dcy.
-       NO transom."""
     gb=dcy-DW; gt=dcy+DW
     if gb>y1: wall(px, rcy(y1,gb), WT, rhh(y1,gb), col)
     if gt<y2: wall(px, rcy(gt,y2), WT, rhh(gt,y2), col)
@@ -120,18 +124,12 @@ def wall_door_y(px,y1,y2,dcy,col):
         B(WT+0.02,0.04,1.05, px,dcy+s*DW,1.05,'#B0BCC4')
 
 def dado_strip(px,py,hx,hy):
-    """Wall-mounted dado rail — sits on the wall face, not floating."""
     B(hx+0.004,hy+0.004,0.022, px,py,1.220,DADO)
     B(hx+0.006,hy+0.006,0.040, px,py,0.040,TEAL_MID)
 
 def room_name_plaque(px,py,wall_face,name_col='#1A3A5A'):
-    """
-    Wall-mounted room name plaque at eye level (~1.55 m).
-    wall_face: 'S','N','E','W' — which wall face to mount on.
-    The plaque is a flat coloured board flush against the wall.
-    """
-    OFF = WT+0.015   # small offset so it sits proud of wall face
-    if wall_face=='S':   # mounted on south face (py is the wall Y, plaque on outside going south)
+    OFF = WT+0.015
+    if wall_face=='S':
         B(0.55,0.008,0.14, px, py-OFF, 1.55, name_col)
         B(0.48,0.006,0.06, px, py-OFF-0.001, 1.55, '#FFFFFF')
     elif wall_face=='N':
@@ -145,8 +143,7 @@ def room_name_plaque(px,py,wall_face,name_col='#1A3A5A'):
         B(0.006,0.48,0.06, px+OFF+0.001, py, 1.55, '#FFFFFF')
 
 def door_side_plaque(px,py,axis,col='#1A3A5A'):
-    """Small room-number plaque beside a door, mounted on the wall at 1.40 m."""
-    if axis=='x':   # door in horizontal wall → plaque on wall face
+    if axis=='x':
         B(0.20,0.008,0.10, px+DW+0.30,py-WT-0.012,1.40,col)
         B(0.17,0.006,0.04, px+DW+0.30,py-WT-0.013,1.40,'#FFFFFF')
     else:
@@ -720,12 +717,34 @@ def build_corridor():
 # ════════════════════════════════════════════════════════════
 # SETUP
 # ════════════════════════════════════════════════════════════
+def build_room_labels():
+    """Floating text labels above each room, always visible."""
+    LZ = WH + 0.5
+    Q = bb.getQuaternionFromEuler([0,0,0])
+    bb.createDebugText('OPERATING ROOM',
+        (rcx(OR_X1,OR_X2), rcy(OR_Y1,OR_Y2), LZ), Q, color='#1A4A6A', size=0.40)
+    bb.createDebugText('SCRUB / PREP',
+        (rcx(SCRUB_X1,SCRUB_X2), rcy(SCRUB_Y1,SCRUB_Y2), LZ), Q, color='#1A5A3A', size=0.32)
+    bb.createDebugText('STERILE STORE',
+        (rcx(STER_X1,STER_X2), rcy(STER_Y1,STER_Y2), LZ), Q, color='#3A3A3A', size=0.32)
+    bb.createDebugText('STAFF ROOM',
+        (rcx(STAFF_X1,STAFF_X2), rcy(STAFF_Y1,STAFF_Y2), LZ), Q, color='#6A4A1A', size=0.32)
+    bb.createDebugText('NURSES STATION',
+        (rcx(NURS_X1,NURS_X2), rcy(NURS_Y1,NURS_Y2), LZ), Q, color='#1A3A6A', size=0.32)
+    bb.createDebugText('RECOVERY ROOM',
+        (rcx(REC_X1,REC_X2), rcy(REC_Y1,REC_Y2), LZ), Q, color='#6A1A1A', size=0.32)
+    bb.createDebugText('EQUIPMENT STORE',
+        (rcx(EQUIP_X1,EQUIP_X2), rcy(EQUIP_Y1,EQUIP_Y2), LZ), Q, color='#3A3A3A', size=0.32)
+    bb.createDebugText('CENTRAL CORRIDOR',
+        (rcx(BLDG_X1,BLDG_X2), rcy(CORR_Y1,CORR_Y2), LZ), Q, color='#2A5A7A', size=0.34)
+
 def setup_world():
     bb.addGroundPlane()
     build_perimeter()
     build_partitions()
     build_floors()
     build_room_name_plaques()
+    build_room_labels()
     PDX,PDY,TRX,TRY,TRH,OZ,SCX3,FCX3,SKX3 = build_or_contents()
     build_scrub()
     build_sterile_store()
@@ -740,128 +759,377 @@ def setup_world():
 # INIT
 # ════════════════════════════════════════════════════════════
 bb.setGravity(0,0,0)
-DOWN_QUAT=bb.getQuaternionFromEuler([math.pi,0,0])
+DOWN_QUAT = bb.getQuaternionFromEuler([math.pi, 0, 0])
+
 PDX,PDY,TRX,TRY,TRH,OZ,SC_X,FC_X,SK_X = setup_world()
 
-robot=bb.loadURDF('panda.urdf',[PDX,PDY,PEDESTAL_TOP_Z],
-       bb.getQuaternionFromEuler([0,0,math.pi/2]),fixedBase=True)
-ee_link=10
-for i,jp in enumerate(home_arm_jpos):
-    bb.setJointMotorControl(robot,i,targetPosition=jp); cur_j[i]=jp
+robot = bb.loadURDF('panda.urdf', [PDX, PDY, PEDESTAL_TOP_Z],
+                    bb.getQuaternionFromEuler([0, 0, math.pi/2]), fixedBase=True)
+ee_link = 10
 
-scalpel_id=bb.createBody('box',halfExtent=[0.010,0.075,0.010],
-    position=[SC_X,TRY,OZ+0.010],color='#C8D0D8',mass=0)
-forceps_id=bb.createBody('box',halfExtent=[0.010,0.095,0.010],
-    position=[FC_X,TRY,OZ+0.010],color='#8090A0',mass=0)
-suture_id =bb.createBody('box',halfExtent=[0.048,0.058,0.012],
-    position=[SK_X,TRY,OZ+0.012],color='#3060A0',mass=0)
+# Drive all joints to home pose immediately so IK has a good seed
+for i, jp in enumerate(home_arm_jpos):
+    bb.resetJointState(robot, i, jp)
+    bb.setJointMotorControl(robot, i, targetPosition=jp)
+    cur_j[i] = jp
 
-OBJ_IDS ={'scalpel':scalpel_id,'forceps':forceps_id,'suture':suture_id}
-OBJ_PICK={'scalpel':[SC_X,TRY,OZ+0.015],'forceps':[FC_X,TRY,OZ+0.015],'suture':[SK_X,TRY,OZ+0.016]}
-ORIGIN  ={'scalpel':[SC_X,TRY,OZ+0.010],'forceps':[FC_X,TRY,OZ+0.010],'suture':[SK_X,TRY,OZ+0.012]}
-OCX2=rcx(OR_X1,OR_X2); OCY2=rcy(OR_Y1,OR_Y2)
-BED_DROPS=[[OCX2+0.20,OCY2-0.15,0.82],[OCX2+0.20,OCY2+0.00,0.82],[OCX2+0.20,OCY2+0.15,0.82]]
+# ── Instrument definitions (shape, color, tray position) ──────────────────────
+# We do NOT store body IDs here. Instead, each instrument is represented by its
+# visual spec only. Bodies are created/deleted/recreated to move them — this is
+# the only reliable way to reposition static visual objects in Browserbotics.
 
-for jname,jdef,jlo,jhi in zip(JOINT_NAMES,home_arm_jpos,JOINT_LO,JOINT_HI):
-    bb.addDebugSlider(jname,jdef,jlo,jhi)
+OBJ_SPEC = {
+    'scalpel': dict(halfExtent=[0.010, 0.075, 0.010], color='#C8D0D8'),
+    'forceps': dict(halfExtent=[0.010, 0.095, 0.010], color='#8090A0'),
+    'suture':  dict(halfExtent=[0.048, 0.058, 0.012], color='#3060A0'),
+}
+ORIGIN = {
+    'scalpel': [SC_X, TRY, OZ+0.010],
+    'forceps': [FC_X, TRY, OZ+0.010],
+    'suture':  [SK_X, TRY, OZ+0.012],
+}
+OBJ_PICK = {
+    'scalpel': [SC_X, TRY, OZ+0.015],
+    'forceps': [FC_X, TRY, OZ+0.015],
+    'suture':  [SK_X, TRY, OZ+0.016],
+}
+
+# Live body IDs — updated every time we delete+recreate an instrument
+OBJ_IDS = {}
+
+def _spawn_instrument(name, pos):
+    """Create a fresh body for instrument `name` at `pos`. Returns new body id."""
+    spec = OBJ_SPEC[name]
+    body_id = bb.createBody(
+        'box',
+        halfExtent=spec['halfExtent'],
+        position=[float(pos[0]), float(pos[1]), float(pos[2])],
+        color=spec['color'],
+        mass=0,
+    )
+    OBJ_IDS[name] = body_id
+    return body_id
+
+def move_instrument(name, pos):
+    """Move instrument to pos using resetBasePose (atomic, no flicker)."""
+    if name in OBJ_IDS and OBJ_IDS[name] is not None:
+        bb.resetBasePose(OBJ_IDS[name],
+                         [float(pos[0]), float(pos[1]), float(pos[2])],
+                         ZERO_QUAT)
+
+def hide_instrument(name):
+    """Hide instrument far below the ground so it's invisible."""
+    move_instrument(name, [0, 0, -50])
+
+# Spawn all three instruments at their tray positions
+for _n, _p in ORIGIN.items():
+    _spawn_instrument(_n, _p)
+OCX2 = rcx(OR_X1, OR_X2); OCY2 = rcy(OR_Y1, OR_Y2)
+BED_DROPS = [
+    [OCX2+0.20, OCY2-0.15, 0.82],
+    [OCX2+0.20, OCY2+0.00, 0.82],
+    [OCX2+0.20, OCY2+0.15, 0.82],
+]
+
+for jname, jdef, jlo, jhi in zip(JOINT_NAMES, home_arm_jpos, JOINT_LO, JOINT_HI):
+    bb.addDebugSlider(jname, jdef, jlo, jhi)
 bb.addDebugButton('Pick Scalpel')
 bb.addDebugButton('Pick Forceps')
 bb.addDebugButton('Pick Suture')
 bb.addDebugButton('Drop on Table')
 bb.addDebugButton('Return Home')
 bb.addDebugButton('Reset All')
-old_vals={'Pick Scalpel':0,'Pick Forceps':0,'Pick Suture':0,'Drop on Table':0,'Return Home':0,'Reset All':0}
+old_vals = {
+    'Pick Scalpel': 0, 'Pick Forceps': 0, 'Pick Suture': 0,
+    'Drop on Table': 0, 'Return Home': 0, 'Reset All': 0,
+}
 
 # ════════════════════════════════════════════════════════════
-# MOTION
+# MOTION HELPERS
 # ════════════════════════════════════════════════════════════
-def get_ee_pos():
-    try: return list(bb.getLinkState(robot,ee_link)[0])
-    except: return [0.0,0.0,1.0]
-def ik(pos): return list(bb.calculateInverseKinematics(robot,ee_link,pos,DOWN_QUAT))
+
+# ── EE position tracker ─────────────────────────────────────
+ee_pos = [PDX, PDY, PEDESTAL_TOP_Z + 0.60]
+
+# Robot base transform: position + yaw rotation
+ROBOT_BASE = [PDX, PDY, PEDESTAL_TOP_Z]
+ROBOT_YAW  = math.pi / 2  # loaded with [0,0,pi/2]
+
+def _mat4_mul(A, B):
+    """Multiply two 4x4 matrices (flat row-major 16-element lists)."""
+    C = [0.0] * 16
+    for i in range(4):
+        for j in range(4):
+            s = 0.0
+            for k in range(4):
+                s += A[i*4+k] * B[k*4+j]
+            C[i*4+j] = s
+    return C
+
+def panda_fk(q):
+    """
+    Compute Panda end-effector (x,y,z) in world frame from 7 joint angles.
+    Uses standard DH parameters for the Franka Panda manipulator.
+    """
+    # Standard DH parameters: (a, d, alpha)
+    dh = [
+        (0,       0.333,  0),
+        (0,       0,     -math.pi/2),
+        (0,       0.316,  math.pi/2),
+        (0.0825,  0,      math.pi/2),
+        (-0.0825, 0.384, -math.pi/2),
+        (0,       0,      math.pi/2),
+        (0.088,   0,      math.pi/2),
+    ]
+
+    # Build cumulative transform T = T1 * T2 * ... * T7
+    T = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
+    for i in range(7):
+        a, d, alpha = dh[i]
+        ct = math.cos(q[i])
+        st = math.sin(q[i])
+        ca = math.cos(alpha)
+        sa = math.sin(alpha)
+        # Standard DH: Rot_z(θ) · Trans_z(d) · Trans_x(a) · Rot_x(α)
+        Ti = [
+            ct, -st*ca,  st*sa, a*ct,
+            st,  ct*ca, -ct*sa, a*st,
+            0,   sa,     ca,    d,
+            0,   0,      0,     1,
+        ]
+        T = _mat4_mul(T, Ti)
+
+    # Flange offset (link7 → link8): 0.107 m along z
+    Tf = [1,0,0,0, 0,1,0,0, 0,0,1,0.107, 0,0,0,1]
+    T = _mat4_mul(T, Tf)
+
+    # Hand offset (link8 → panda_hand): 0.1034 m along z
+    Th = [1,0,0,0, 0,1,0,0, 0,0,1,0.1034, 0,0,0,1]
+    T = _mat4_mul(T, Th)
+
+    # Local EE position in robot base frame
+    lx, ly, lz = T[3], T[7], T[11]
+
+    # Transform to world: base at ROBOT_BASE with yaw ROBOT_YAW
+    cy = math.cos(ROBOT_YAW)
+    sy = math.sin(ROBOT_YAW)
+    wx = ROBOT_BASE[0] + cy * lx - sy * ly
+    wy = ROBOT_BASE[1] + sy * lx + cy * ly
+    wz = ROBOT_BASE[2] + lz
+
+    return [wx, wy, wz]
+
+def clamp_joints(jpos):
+    return [max(JOINT_LO[i], min(JOINT_HI[i], jpos[i])) for i in range(7)]
+
+def ik(target_pos):
+    raw = bb.calculateInverseKinematics(robot, ee_link, target_pos, DOWN_QUAT)
+    return clamp_joints(list(raw))
+
 def ease(t):
-    t=max(0.0,min(1.0,t)); return t*t*(3.0-2.0*t)
-def snap_to_ee(obj_name):
-    if obj_name and obj_name in OBJ_IDS:
-        try: bb.resetBasePositionAndOrientation(OBJ_IDS[obj_name],get_ee_pos(),ZERO_QUAT)
-        except: pass
-def place_obj(obj_name,pos):
-    if obj_name and obj_name in OBJ_IDS:
-        try: bb.resetBasePositionAndOrientation(OBJ_IDS[obj_name],[float(pos[0]),float(pos[1]),float(pos[2])],ZERO_QUAT)
-        except: pass
-def smooth_move(target_j,steps=60,carrying=False,carry_obj=''):
+    t = max(0.0, min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+def get_ee_pos():
+    """Compute EE world position using forward kinematics from current joint angles."""
+    try:
+        pos = panda_fk(cur_j)
+        return pos
+    except Exception:
+        return list(ee_pos)
+
+def place_obj(obj_name, pos):
+    if obj_name:
+        move_instrument(obj_name, pos)
+
+def apply_joints(jpos):
     global cur_j
-    start_j=list(cur_j)
-    for s in range(steps+1):
-        t=s/max(steps,1); t2=ease(t)
-        for i in range(7):
-            v=start_j[i]+(target_j[i]-start_j[i])*t2
-            bb.setJointMotorControl(robot,i,targetPosition=float(v)); cur_j[i]=float(v)
-        if carrying and carry_obj: snap_to_ee(carry_obj)
-        time.sleep(0.018)
+    for i in range(7):
+        bb.resetJointState(robot, i, float(jpos[i]))
+        cur_j[i] = float(jpos[i])
+
+def smooth_move_joints(target_j, steps=80, carrying=False, carry_obj=''):
+    """Interpolate in joint space. Object follows via FK (approximate)."""
+    global cur_j, ee_pos
+    start_j = list(cur_j)
+
+    for s in range(steps + 1):
+        t  = s / max(steps, 1)
+        t2 = ease(t)
+        interp_j = [start_j[i] + (target_j[i] - start_j[i]) * t2 for i in range(7)]
+        apply_joints(interp_j)
+
+        if carrying and carry_obj:
+            move_instrument(carry_obj, get_ee_pos())
+
+        time.sleep(0.016)
+
+    ee_pos = get_ee_pos()
+    if carrying and carry_obj:
+        move_instrument(carry_obj, ee_pos)
+
+def smooth_move_cartesian(start_xyz, end_xyz, steps=80, carrying=False, carry_obj=''):
+    """Interpolate in Cartesian space using IK each frame. Object position is exact."""
+    global cur_j, ee_pos
+
+    for s in range(steps + 1):
+        t  = s / max(steps, 1)
+        t2 = ease(t)
+        target = [start_xyz[k] + (end_xyz[k] - start_xyz[k]) * t2 for k in range(3)]
+        jpos = ik(target)
+        apply_joints(jpos)
+
+        if carrying and carry_obj:
+            move_instrument(carry_obj, target)
+
+        time.sleep(0.016)
+
+    ee_pos = list(end_xyz)
+    if carrying and carry_obj:
+        move_instrument(carry_obj, end_xyz)
+
+def smooth_home(steps=70, carrying=False, carry_obj=''):
+    """Return arm to home position using Cartesian interpolation."""
+    smooth_move_cartesian(list(ee_pos), HOME_EE, steps=steps, carrying=carrying, carry_obj=carry_obj)
+
+
+# ════════════════════════════════════════════════════════════
+# PICK / DROP / HOME / RESET
+# ════════════════════════════════════════════════════════════
+
+HOME_EE = [PDX, PDY, PEDESTAL_TOP_Z + 0.60]
+
 def do_pick(obj):
-    global held_obj
-    pick=OBJ_PICK[obj]; above=[pick[0],pick[1],pick[2]+0.22]
-    smooth_move(ik(above),steps=70)
-    smooth_move(ik(pick),steps=40,carrying=True,carry_obj=obj)
-    held_obj=obj; snap_to_ee(obj)
-    smooth_move(ik(above),steps=45,carrying=True,carry_obj=obj)
-    smooth_move(home_arm_jpos,steps=65,carrying=True,carry_obj=obj)
+    global held_obj, ee_pos
+
+    pick  = list(OBJ_PICK[obj])
+    above = [pick[0], pick[1], pick[2] + 0.30]
+
+    smooth_move_cartesian(ee_pos, above, steps=80)
+    smooth_move_cartesian(above, pick,  steps=60)
+
+    # Attach: hide from tray, mark as held
+    held_obj = obj
+    hide_instrument(obj)
+    time.sleep(0.05)
+    move_instrument(obj, list(ee_pos))
+    print(f'[do_pick] grasped {obj}')
+
+    smooth_move_cartesian(pick, above, steps=60, carrying=True, carry_obj=obj)
+    smooth_move_cartesian(above, HOME_EE, steps=80, carrying=True, carry_obj=obj)
+    print(f'[do_pick] done — holding {obj}')
+
+
 def do_drop(slot):
-    global held_obj
-    obj=held_obj; da=[slot[0],slot[1],slot[2]+0.22]
-    smooth_move(ik(da),steps=65,carrying=True,carry_obj=obj)
-    smooth_move(ik(slot),steps=40,carrying=True,carry_obj=obj)
-    place_obj(obj,slot); held_obj=''
-    smooth_move(ik(da),steps=40)
-    smooth_move(home_arm_jpos,steps=60)
+    global held_obj, ee_pos
+
+    obj   = held_obj
+    slot  = list(slot)
+    above = [slot[0], slot[1], slot[2] + 0.30]
+
+    smooth_move_cartesian(ee_pos, above, steps=70, carrying=True, carry_obj=obj)
+    smooth_move_cartesian(above, slot,  steps=50, carrying=True, carry_obj=obj)
+
+    place_obj(obj, slot)
+    held_obj = ''
+    print(f'[do_drop] released {obj} at {slot}')
+
+    smooth_move_cartesian(slot, above, steps=50)
+    smooth_move_cartesian(above, HOME_EE, steps=70)
+
+
 def do_home():
-    smooth_move(home_arm_jpos,steps=60,carrying=(held_obj!=''),carry_obj=held_obj)
+    global ee_pos
+    if held_obj:
+        smooth_move_cartesian(ee_pos, HOME_EE, steps=70, carrying=True, carry_obj=held_obj)
+    else:
+        smooth_move_cartesian(ee_pos, HOME_EE, steps=70)
+
+
 def do_reset():
-    global held_obj,drop_idx
-    held_obj=''; drop_idx=0
-    for name,pos in ORIGIN.items(): place_obj(name,pos)
-    smooth_move(home_arm_jpos,steps=40)
+    global held_obj, drop_idx, ee_pos
+    held_obj  = ''
+    drop_idx  = 0
+    for name, pos in ORIGIN.items():
+        place_obj(name, pos)
+    smooth_move_cartesian(ee_pos, HOME_EE, steps=50)
+    print('[do_reset] all instruments returned to tray')
+
 
 # ════════════════════════════════════════════════════════════
 # MAIN LOOP
 # ════════════════════════════════════════════════════════════
-print('=== HOSPITAL READY ===')
+print('=== HOSPITAL READY (v8.1 — pick fix) ===')
 print('Rooms: SCRUB/PREP | OPERATING ROOM | STERILE STORE')
 print('       CENTRAL CORRIDOR')
 print('       STAFF ROOM | NURSES STATION | RECOVERY ROOM | EQUIPMENT STORE')
+print('Controls: Pick Scalpel / Pick Forceps / Pick Suture / Drop on Table / Return Home / Reset All')
 
 while True:
-    vps=bb.readDebugParameter('Pick Scalpel')
-    vpf=bb.readDebugParameter('Pick Forceps')
-    vpu=bb.readDebugParameter('Pick Suture')
-    vd =bb.readDebugParameter('Drop on Table')
-    vh =bb.readDebugParameter('Return Home')
-    vr =bb.readDebugParameter('Reset All')
-    if vps>old_vals['Pick Scalpel']:
-        old_vals['Pick Scalpel']=vps
-        if held_obj: place_obj(held_obj,ORIGIN[held_obj]); held_obj=''
-        do_pick('scalpel')
-    elif vpf>old_vals['Pick Forceps']:
-        old_vals['Pick Forceps']=vpf
-        if held_obj: place_obj(held_obj,ORIGIN[held_obj]); held_obj=''
-        do_pick('forceps')
-    elif vpu>old_vals['Pick Suture']:
-        old_vals['Pick Suture']=vpu
-        if held_obj: place_obj(held_obj,ORIGIN[held_obj]); held_obj=''
-        do_pick('suture')
-    elif vd>old_vals['Drop on Table']:
-        old_vals['Drop on Table']=vd
+    vps = bb.readDebugParameter('Pick Scalpel')
+    vpf = bb.readDebugParameter('Pick Forceps')
+    vpu = bb.readDebugParameter('Pick Suture')
+    vd  = bb.readDebugParameter('Drop on Table')
+    vh  = bb.readDebugParameter('Return Home')
+    vr  = bb.readDebugParameter('Reset All')
+
+    if vps > old_vals['Pick Scalpel']:
+        old_vals['Pick Scalpel'] = vps
         if held_obj:
-            slot=BED_DROPS[drop_idx%len(BED_DROPS)]; drop_idx+=1; do_drop(slot)
-    elif vh>old_vals['Return Home']:
-        old_vals['Return Home']=vh; do_home()
-    elif vr>old_vals['Reset All']:
-        old_vals['Reset All']=vr; do_reset()
+            place_obj(held_obj, ORIGIN[held_obj]); held_obj = ''
+        do_pick('scalpel')
+
+    elif vpf > old_vals['Pick Forceps']:
+        old_vals['Pick Forceps'] = vpf
+        if held_obj:
+            place_obj(held_obj, ORIGIN[held_obj]); held_obj = ''
+        do_pick('forceps')
+
+    elif vpu > old_vals['Pick Suture']:
+        old_vals['Pick Suture'] = vpu
+        if held_obj:
+            place_obj(held_obj, ORIGIN[held_obj]); held_obj = ''
+        do_pick('suture')
+
+    elif vd > old_vals['Drop on Table']:
+        old_vals['Drop on Table'] = vd
+        if held_obj:
+            drop_pos = list(ee_pos)
+            move_instrument(held_obj, drop_pos)
+            print(f'[drop] released {held_obj} at {drop_pos}')
+            held_obj = ''
+
+    elif vh > old_vals['Return Home']:
+        old_vals['Return Home'] = vh
+        do_home()
+
+    elif vr > old_vals['Reset All']:
+        old_vals['Reset All'] = vr
+        do_reset()
+
     else:
-        if not held_obj:
-            for i,jname in enumerate(JOINT_NAMES):
-                jp=bb.readDebugParameter(jname)
-                bb.setJointMotorControl(robot,i,targetPosition=jp); cur_j[i]=jp
-        else: snap_to_ee(held_obj)
+        # Read sliders — compute Cartesian target, move via IK
+        new_j = []
+        for i, jname in enumerate(JOINT_NAMES):
+            jp = bb.readDebugParameter(jname)
+            new_j.append(jp)
+        changed = any(abs(new_j[i] - cur_j[i]) > 0.001 for i in range(7))
+        if changed:
+            # Apply joints smoothly in small steps
+            old_j = list(cur_j)
+            for ms in range(1, 6):
+                t = ms / 5.0
+                for i in range(7):
+                    v = old_j[i] + (new_j[i] - old_j[i]) * t
+                    bb.resetJointState(robot, i, v)
+                    cur_j[i] = v
+                # Update ee_pos after joint change
+                ee_pos = get_ee_pos()
+                if held_obj:
+                    move_instrument(held_obj, ee_pos)
+                time.sleep(0.010)
+        elif held_obj:
+            ee_pos = get_ee_pos()
+            move_instrument(held_obj, ee_pos)
+
     time.sleep(0.05)

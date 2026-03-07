@@ -20,5 +20,4 @@
 > Pls upload the Video in Google form link
 
 # 7 Linkedin Post
-> Submit the LinkedIn post URL
-> [LinkedIn post URL]
+> [LinkedIn post URL](https://www.linkedin.com/posts/pavithran030_ksrct1994-medicalrobotics-aiinmedicine-activity-7436044184031195137-8r2U?utm_source=share&utm_medium=member_desktop&rcm=ACoAAEN6OlAB1h_0FHalmOtjpcuap68tBYs4ZLk)
